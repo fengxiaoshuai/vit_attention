@@ -916,13 +916,22 @@ bool OpTeller::Tell(const framework::ir::Node* node, bool use_no_calib_int8,
       if (desc.HasAttr("decrease_axis")) {
         std::vector<int> decrease_axis =
             BOOST_GET_CONST(std::vector<int>, desc.GetAttr("decrease_axis"));
-        if (decrease_axis.size() > 0) {
-          VLOG(3) << "Invalid slice decrease_axis. decrease_axis.size() > 0"
+        if(with_dynamic_shape) {
+            if (decrease_axis.size() > 1) {
+               VLOG(3) << "Invalid slice decrease_axis. decrease_axis.size() > 1"
+                         "is not supported in TensorRT when it's dynamic";
+               return false;
+            }
+        }
+        else {
+              if (decrease_axis.size() > 0) {
+              VLOG(3) << "Invalid slice decrease_axis. decrease_axis.size() > 0"
                      "is not supported in TensorRT";
-          return false;
+              return false;
+        }
+		
         }
       }
-
       if (!desc.HasAttr("axes") || !desc.HasAttr("starts") ||
           !desc.HasAttr("ends")) {
         VLOG(3) << "The necessary attributes of the slice operator axes "

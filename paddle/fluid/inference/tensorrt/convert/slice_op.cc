@@ -38,6 +38,8 @@ class SliceOpConverter : public OpConverter {
       engine_->SetTensorDynamicRange(input, out_scale);
     }
 
+    std::vector<int> decrease_axises =
+        BOOST_GET_CONST(std::vector<int>, op_desc.GetAttr("decrease_axis"));
     std::vector<int> axes =
         BOOST_GET_CONST(std::vector<int>, op_desc.GetAttr("axes"));
     std::vector<int> starts =
@@ -107,8 +109,9 @@ class SliceOpConverter : public OpConverter {
       } else {
         bool with_fp16 =
             engine_->WithFp16() && !engine_->disable_trt_plugin_fp16();
+        int decrease_axis = decrease_axises.size() == 0? -1 : decrease_axises[0];
         plugin::SlicePluginDynamic* plugin =
-            new plugin::SlicePluginDynamic(starts, ends, axes, with_fp16);
+            new plugin::SlicePluginDynamic(starts, ends, axes, decrease_axis, with_fp16);
         layer = engine_->AddDynamicPlugin(&input, 1, plugin);
       }
     } else {
