@@ -118,6 +118,8 @@ struct SimpleOpTypeSetTeller : public Teller {
       "skip_layernorm",
       "slice",
       "fused_preln_embedding_eltwise_layernorm",
+      "strided_slice",
+      "roll",
       "preln_skip_layernorm"};
   std::unordered_set<std::string> teller_set{
       "mul",
@@ -179,6 +181,8 @@ struct SimpleOpTypeSetTeller : public Teller {
       "skip_layernorm",
       "slice",
       "fused_preln_embedding_eltwise_layernorm",
+      "strided_slice",
+      "roll",
       "preln_skip_layernorm"};
 };
 
@@ -911,6 +915,21 @@ bool OpTeller::Tell(const framework::ir::Node* node, bool use_no_calib_int8,
         return false;
       }
     }
+    if (op_type == "roll") {
+      if (!with_dynamic_shape) {
+             return false;
+      }
+    }
+
+    if (op_type == "strided_slice") {
+      if (!with_dynamic_shape) {
+             return false;
+      }
+      if (!desc.HasAttr("axes") || !desc.HasAttr("starts") || !desc.HasAttr("ends") || !desc.HasAttr("strides")) {
+        VLOG(3) << "The necessary attributes of the strided_slice operator miss ";
+        return false;
+      }
+    }
 
     if (op_type == "slice") {
       if (desc.HasAttr("decrease_axis")) {
@@ -1002,6 +1021,14 @@ bool OpTeller::Tell(const framework::ir::Node* node, bool use_no_calib_int8,
       auto* y_var_desc = block->FindVar(desc.Input("Y")[0]);
       const auto x_shape = x_var_desc->GetShape();
       const auto y_shape = y_var_desc->GetShape();
+      if (op_type == "elementwise_add" && y_var_desc->Persistable()) {
+        if (y_shape.size() != 1) {
+          return false;
+        }
+        if (y_shape[0] != x_shape[1]) {
+          return false;
+        }
+      }
       if (x_shape.size() == 1 && y_shape.size() == 1) {
         VLOG(3) << "Now trt may not support two 1d tensor elementwise op.";
         return false;
