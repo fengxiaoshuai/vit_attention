@@ -2328,6 +2328,59 @@ PDNode *patterns::ConvElementwiseaddAct::operator()(PDNode *conv_in) {
   return act_out;
 }
 
+PDNode *patterns::ReshapeIndexSelect::operator()(PDNode *in) {
+  in->AsInput();
+  auto reshape1_op = pattern->NewNode(reshape1_op_repr())->assert_is_op("reshape2");
+  auto reshape1_out = pattern->NewNode(reshape1_out_repr())
+                      ->assert_is_op_output("reshape2","Out")
+                      ->assert_is_op_input("index_select", "Index")
+                      ->AsIntermediate();
+
+  auto index_select_op = pattern->NewNode(index_select_op_repr())->assert_is_op("index_select");
+  auto index_select_w = pattern->NewNode(index_select_w_repr())
+                         ->assert_is_op_input("index_select", "X")
+                         ->AsInput();
+  auto index_select_out = pattern->NewNode(index_select_out_repr())
+                      ->assert_is_op_output("index_select","Out")
+                      ->assert_is_op_input("reshape2", "X")
+                      ->AsIntermediate();
+
+  auto reshape2_op = pattern->NewNode(reshape2_op_repr())->assert_is_op("reshape2");
+  auto reshape2_out = pattern->NewNode(reshape2_out_repr())
+                      ->assert_is_op_output("reshape2","Out")
+                      ->assert_is_op_input("transpose2", "X")
+                      ->AsIntermediate();
+
+  auto transpose2_op = pattern->NewNode(transpose_op_repr())->assert_is_op("transpose2");
+  auto transpose2_out = pattern->NewNode(transpose_out_repr())
+                      ->assert_is_op_output("transpose2","Out")
+                      ->assert_is_op_input("unsqueeze2", "X")
+                      ->AsIntermediate();
+
+  auto unsqueeze2_op = pattern->NewNode(unsqueeze2_op_repr())->assert_is_op("unsqueeze2");
+  auto unsqueeze2_out = pattern->NewNode(unsqueeze2_out_repr())
+                      ->AsOutput();
+
+
+  reshape1_op->LinksFrom({in});
+  reshape1_out->LinksFrom({reshape1_op});
+
+  index_select_op->LinksFrom({index_select_w, reshape1_out});
+  index_select_out->LinksFrom({index_select_op});
+ 
+  reshape2_op->LinksFrom({index_select_out});
+  reshape2_out->LinksFrom({reshape2_op});
+
+  transpose2_op->LinksFrom({reshape2_out});
+  transpose2_out->LinksFrom({transpose2_op});
+
+  unsqueeze2_op->LinksFrom({transpose2_out});
+  unsqueeze2_out->LinksFrom({unsqueeze2_op});
+  
+  return unsqueeze2_out;
+}
+
+
 PDNode *patterns::ConvElementwiseadd2Act::operator()(PDNode *conv_in) {
   auto conv_op = pattern->NewNode(conv_op_repr())->assert_is_op("conv2d");
   auto conv_filter = pattern->NewNode(conv_filter_repr())

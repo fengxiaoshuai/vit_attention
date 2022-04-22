@@ -77,6 +77,7 @@ void PaddlePassBuilder::ClearPasses() { passes_.clear(); }
 const std::vector<std::string> kTRTSubgraphPasses({
   "adaptive_pool2d_convert_global_pass",
       "shuffle_channel_detect_pass",          //
+      "reshape_index_select_fuse_pass",          //
       "quant_conv2d_dequant_fuse_pass",       //
       "delete_quant_dequant_op_pass",         //
       "delete_quant_dequant_filter_op_pass",  //
@@ -145,6 +146,7 @@ GpuPassStrategy::GpuPassStrategy() : PassStrategy({}) {
         "gpu_cpu_map_matmul_v2_to_matmul_pass",   //
         "gpu_cpu_map_matmul_to_mul_pass",         //
         "fc_fuse_pass",                           //
+        "reshape_index_select_fuse_pass",          //
         "fc_elementwise_layernorm_fuse_pass",     //
 #if CUDNN_VERSION >= 7100  // To run conv_fusion, the version of cudnn must be
                            // guaranteed at least v7
@@ -187,6 +189,7 @@ void GpuPassStrategy::Exp_EnableUseGpuFp16() {
         "gpu_cpu_map_matmul_v2_to_matmul_pass",   //
         "gpu_cpu_map_matmul_to_mul_pass",         //
         // "fc_fuse_pass",                        //
+        "reshape_index_select_fuse_pass",          //
         "fc_elementwise_layernorm_fuse_pass",  //
 #if CUDNN_VERSION >= 7100  // To run conv_fusion, the version of cudnn must be
                            // guaranteed at least v7

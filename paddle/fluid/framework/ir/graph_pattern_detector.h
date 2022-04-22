@@ -1396,6 +1396,30 @@ struct ConvElementwiseaddAct : public PatternBase {
   PATTERN_DECL_NODE(act_out);
 };
 
+// reshape + index_select + reshape + transpose + unsqueeze
+struct ReshapeIndexSelect : public PatternBase {
+  ReshapeIndexSelect(PDPattern* pattern, const std::string& name_scope)
+      : PatternBase(pattern, name_scope, "reshape_index_select") {}
+
+  PDNode* operator()(PDNode* in);
+
+  PATTERN_DECL_NODE(reshape1_op);
+  PATTERN_DECL_NODE(reshape1_out);
+
+  PATTERN_DECL_NODE(index_select_op);
+  PATTERN_DECL_NODE(index_select_w);
+  PATTERN_DECL_NODE(index_select_out);
+
+  PATTERN_DECL_NODE(reshape2_op);
+  PATTERN_DECL_NODE(reshape2_out);
+
+  PATTERN_DECL_NODE(transpose_op);
+  PATTERN_DECL_NODE(transpose_out);
+
+  PATTERN_DECL_NODE(unsqueeze2_op);
+  PATTERN_DECL_NODE(unsqueeze2_out);
+};
+
 // Conv + ElementwiseAdd + ElementwiseAdd + Activation
 struct ConvElementwiseadd2Act : public PatternBase {
   ConvElementwiseadd2Act(PDPattern* pattern, const std::string& name_scope)
