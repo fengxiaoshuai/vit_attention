@@ -135,6 +135,7 @@ GpuPassStrategy::GpuPassStrategy() : PassStrategy({}) {
     //   "identity_scale_op_clean_pass",             //
     "is_test_pass",                               //
         "simplify_with_basic_ops_pass",           //
+        "vit_attention_fuse_pass",          //
         "conv_bn_fuse_pass",                      //
         "conv_eltwiseadd_bn_fuse_pass",           //
         "embedding_eltwise_layernorm_fuse_pass",  //
@@ -190,6 +191,7 @@ void GpuPassStrategy::Exp_EnableUseGpuFp16() {
         "gpu_cpu_map_matmul_to_mul_pass",         //
         // "fc_fuse_pass",                        //
         "reshape_index_select_fuse_pass",          //
+        "vit_attention_fuse_pass",          //
         "fc_elementwise_layernorm_fuse_pass",  //
 #if CUDNN_VERSION >= 7100  // To run conv_fusion, the version of cudnn must be
                            // guaranteed at least v7

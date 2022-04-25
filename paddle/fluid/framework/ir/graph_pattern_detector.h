@@ -1420,6 +1420,50 @@ struct ReshapeIndexSelect : public PatternBase {
   PATTERN_DECL_NODE(unsqueeze2_out);
 };
 
+// reshape + index_select + reshape + transpose + unsqueeze
+struct VitAttention : public PatternBase {
+  VitAttention(PDPattern* pattern, const std::string& name_scope)
+      : PatternBase(pattern, name_scope, "vit_attention") {}
+
+  PDNode* operator()(PDNode* in);
+
+  PATTERN_DECL_NODE(reshape1_op);
+  PATTERN_DECL_NODE(reshape1_out);
+
+  PATTERN_DECL_NODE(transpose1_op);
+  PATTERN_DECL_NODE(transpose1_out);
+
+  PATTERN_DECL_NODE(slice1_op);
+  PATTERN_DECL_NODE(slice1_out);
+
+  PATTERN_DECL_NODE(slice2_op);
+  PATTERN_DECL_NODE(slice2_out);
+
+  PATTERN_DECL_NODE(slice3_op);
+  PATTERN_DECL_NODE(slice3_out);
+
+  PATTERN_DECL_NODE(matmul2_op);
+  PATTERN_DECL_NODE(matmul2_out);
+
+  PATTERN_DECL_NODE(matmul1_op);
+  PATTERN_DECL_NODE(matmul1_out);
+
+  PATTERN_DECL_NODE(transpose2_op);
+  PATTERN_DECL_NODE(transpose2_out);
+
+  PATTERN_DECL_NODE(scale1_op);
+  PATTERN_DECL_NODE(scale1_out);
+
+  PATTERN_DECL_NODE(softmax1_op);
+  PATTERN_DECL_NODE(softmax1_out);
+
+  PATTERN_DECL_NODE(transpose3_op);
+  PATTERN_DECL_NODE(transpose3_out);
+
+  PATTERN_DECL_NODE(reshape2_op);
+  PATTERN_DECL_NODE(reshape2_out);
+};
+
 // Conv + ElementwiseAdd + ElementwiseAdd + Activation
 struct ConvElementwiseadd2Act : public PatternBase {
   ConvElementwiseadd2Act(PDPattern* pattern, const std::string& name_scope)
