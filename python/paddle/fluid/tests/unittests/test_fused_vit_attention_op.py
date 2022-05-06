@@ -40,7 +40,7 @@ class TestFusedVitAttentionOp(OpTest):
         self.size_per_head = 64
         self.head_number = 12
         self.batch_size = 1
-        self.scale = 1.25
+        self.scale = 1.5
 
     def setUp(self):
         self.op_type = "vit_attention"

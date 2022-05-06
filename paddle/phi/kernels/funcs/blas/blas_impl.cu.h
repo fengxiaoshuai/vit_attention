@@ -2329,7 +2329,8 @@ void Blas<paddle::platform::CUDADeviceContext>::BatchedGemmArray(
   cublasOperation_t cuTransB = (transB == CblasNoTrans) ? CUBLAS_OP_N : CUBLAS_OP_T;
 
 #if CUDA_VERSION >= 9010
-  if ((FLAGS_enable_cublas_tensor_op_math && (std::is_same<T, float>::value)) ||
+  //FLAGS_enable_cublas_tensor_op_math=1
+  if ((1 && (std::is_same<T, float>::value)) ||
       std::is_same<T, phi::dtype::float16>::value) {
     cublasGemmAlgo_t algo = CUBLAS_GEMM_DFALT;
     bool use_tensor_op_math = context_.tensor_core_available();
