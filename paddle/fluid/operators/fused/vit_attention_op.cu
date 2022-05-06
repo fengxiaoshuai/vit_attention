@@ -91,6 +91,24 @@ T blockReduceSum(T val)
 
 template <typename T>
 __global__
+void set_ptr_kernel(const void** array_a, 
+                    const void** array_b, 
+                    void** array_c, 
+                    T* device_a,
+                    T* device_b,
+                    T* device_c,
+                    int batch_a, int batch_b, int batch_c, 
+                    int head_a, int head_b, int head_c){
+     int batch_id = blockIdx.x;
+     int head_id = threadIdx.x;
+     array_a[batch_id * blockDim.x + head_id] = device_a + batch_id * batch_a + head_id * head_a;
+     array_b[batch_id * blockDim.x + head_id] = device_b + batch_id * batch_b + head_id * head_b; 
+     array_c[batch_id * blockDim.x + head_id] = device_c + batch_id * batch_c + head_id * head_c;
+     
+}
+
+template <typename T>
+__global__
 void softmax_kernel(T* qk_buf, T* softmax_buf, const int batch_size, const int head_num, const int length)
 {
     int batch_id = blockIdx.x / head_num;
@@ -119,6 +137,24 @@ void softmax_kernel(T* qk_buf, T* softmax_buf, const int batch_size, const int h
       if(threadIdx.x < length) softmax_buf[threadIdx.x + batch_offset + head_offset + length_offset] = (T)(qk / s_sum);
 
     }
+}
+
+int round_up(int seq_len)
+{
+    int val =32;
+    if(seq_len <= 32)
+      val = 32;
+    else if(seq_len > 32 && seq_len <= 64)
+      val = 64;
+    else if(seq_len > 64 && seq_len <= 128)
+      val = 128;
+    else if(seq_len > 128 && seq_len <= 256)
+      val = 256;
+    else if(seq_len > 256 && seq_len <= 512)
+      val = 512;
+    else
+      val = 1024;
+    return val;
 }
 
 
@@ -161,33 +197,34 @@ class VitAttentionKernel : public framework::OpKernel<T> {
 
     // compute q * k
     int batch_count = batch * head_number;
-    // // host
-    T** h_a_array = new T*[batch_count];
-    T** h_b_array = new T*[batch_count];
-    T** h_c_array = new T*[batch_count];
-    // // device
-    const void **d_a_array, **d_b_array;
+    /*
+    Tensor array_tensor;
+    array_tensor.Resize({3 * batch * head_number});
+    int* array_d = array_tensor.mutable_data<int>(context.GetPlace());
+    void** test_array_d = reinterpret_cast<void**>(array_d);
+    */
+    const void **d_a_array, **d_b_array, **array;
     void **d_c_array;
-
-    cudaMalloc((void**)&d_a_array, batch_count * sizeof(T *));
-    cudaMalloc((void**)&d_b_array, batch_count * sizeof(T *));
-    cudaMalloc((void**)&d_c_array, batch_count * sizeof(T *));
-    // // set batch ptr
-    for(int i=0; i<batch; ++i)
-    {
-	     for(int j=0; j<head_number; j++)
-	     {
-    		h_a_array[i * head_number + j] = input_q_d + i * seq_len * hidden_three + j * head_size;
-    		h_b_array[i * head_number + j] = input_k_d + i * seq_len * hidden_three + j * head_size;
-    		h_c_array[i * head_number + j] = temp_softmax_d + i * seq_len * (seq_len * head_number) + j * seq_len;
-	     }
-    }
-    // // copy host to device
-    cudaMemcpy(d_a_array, h_a_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b_array, h_b_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_c_array, h_c_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
-
-    auto alpha = 1.25f;
+    cudaMalloc((void**)&array, 3 * batch_count * sizeof(T *));
+    d_a_array = array;
+    d_b_array = &array[batch_count];
+    d_c_array = const_cast<void**>(&array[2 * batch_count]);
+    // set_ptr_kernel
+    dim3 grid_ptr(batch);
+    dim3 block_ptr(head_number);
+    set_ptr_kernel<<<grid_ptr,block_ptr,0,stream>>>(d_a_array, 
+                                                d_b_array,
+                                                d_c_array,
+                                                input_q_d,
+                                                input_k_d,
+                                                temp_softmax_d,
+                                                seq_len * hidden_three,
+                                                seq_len * hidden_three,
+                                                seq_len * seq_len * head_number, 
+                                                head_size, 
+                                                head_size, 
+                                                seq_len);
+    auto alpha = scale;
     auto beta = 0.0f;
     int lda = hidden_three;
     int ldb = hidden_three;
@@ -195,8 +232,6 @@ class VitAttentionKernel : public framework::OpKernel<T> {
 
 
     auto blas = phi::funcs::GetBlas<platform::CUDADeviceContext, T>(device_ctx);
-    // CBLAS_TRANSPOSE transA = CblasTrans;
-    // CBLAS_TRANSPOSE transB = CblasNoTrans;
     blas.BatchedGemmArray(CblasTrans, 
                      CblasNoTrans, 
                      seq_len,
@@ -208,60 +243,27 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                      beta, 
                      d_c_array, ldc,
                      batch_count);
-    /*
-    blasHandle_t handle{nullptr};
-    paddle::platform::dynload::cublasCreate_v2(&handle);
-    cublasGemmAlgo_t algo = CUBLAS_GEMM_DFALT;
-    paddle::platform::dynload::cublasGemmBatchedEx(handle,
-			CUBLAS_OP_T,
-			CUBLAS_OP_N,
-			seq_len,
-			seq_len,
-			head_size,
-			&alpha,
-		        d_b_array, CUDA_R_32F, ldb,
-			d_a_array, CUDA_R_32F, lda,
-			&beta,
-			d_c_array, CUDA_R_32F, ldc,
-			batch_count,
-			CUDA_R_32F,
-			algo);
-    */
     // softmax 
     dim3 grid(batch * head_number);
     dim3 block;
-    if(seq_len <= 32)
-      block.x = 32;
-    else if(seq_len > 32 && seq_len <= 64)
-      block.x = 64;
-    else if(seq_len > 64 && seq_len <= 128)
-      block.x = 128;
-    else if(seq_len > 128 && seq_len <= 256)
-      block.x = 256;
-    else if(seq_len > 256 && seq_len <= 512)
-      block.x = 512;
-    else
-      block.x = 1024;
+    int val = round_up(seq_len);
+    block.x = val;
     softmax_kernel<T> <<<grid, block, 0, stream>>>(temp_softmax_d, temp_softmax_d, batch, head_number, seq_len);
     // softmax * v
-    // cudaMemcpy(output_d, temp_softmax_d, batch * seq_len * seq_len * head_number * sizeof(T), cudaMemcpyDeviceToDevice);
-    // // set batch ptr
-    for(int i=0; i<batch; ++i)
-    {
-	     for(int j=0; j<head_number; j++)
-	     {
-    		h_a_array[i * head_number + j] = temp_softmax_d + i * seq_len * seq_len * head_number + j * seq_len;
-    		h_b_array[i * head_number + j] = input_v_d + i * seq_len * hidden_three + j * head_size;
-    		h_c_array[i * head_number + j] = output_d + i * seq_len * hidden_size + j * head_size;
-	     }
-    }
-    // // copy host to device
-    cudaMemcpy(d_a_array, h_a_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b_array, h_b_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_c_array, h_c_array, batch_count * sizeof(T*), cudaMemcpyHostToDevice);
+    set_ptr_kernel<<<grid_ptr,block_ptr,0,stream>>>(d_a_array, 
+                                                d_b_array,
+                                                d_c_array,
+                                                temp_softmax_d,
+                                                input_v_d,
+                                                output_d,
+                                                seq_len * seq_len * head_number,
+                                                seq_len * hidden_three,
+                                                seq_len * hidden_size, 
+                                                seq_len, 
+                                                head_size, 
+                                                head_size);
 
     alpha = 1.0f;
-    beta = 0.0f;
     lda = seq_len * head_number;
     ldb = hidden_three;
     ldc = hidden_size;
@@ -277,22 +279,6 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                      beta, 
                      d_c_array, ldc,
                      batch_count);
-    /*
-    paddle::platform::dynload::cublasGemmBatchedEx(handle,
-			CUBLAS_OP_N,
-			CUBLAS_OP_N,
-			head_size,
-			seq_len,
-			seq_len,
-			&alpha,
-		        d_b_array, CUDA_R_32F, ldb,
-			d_a_array, CUDA_R_32F, lda,
-			&beta,
-			d_c_array, CUDA_R_32F, ldc,
-			batch_count,
-			CUDA_R_32F,
-			algo);
-    */
   }
 };
 
