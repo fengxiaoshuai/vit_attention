@@ -17,6 +17,7 @@
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/memory/malloc.h"
 #include "paddle/fluid/operators/math/bert_encoder_functor.h"
+#include "paddle/phi/kernels/gpudnn/softmax_gpudnn.h"
 #include "paddle/phi/kernels/funcs/blas/blas.h"
 #include "paddle/fluid/platform/dynload/cublas.h"
 #define FINAL_MASK 0xffffffff
@@ -187,9 +188,12 @@ class VitAttentionKernel : public framework::OpKernel<T> {
     out->Resize({batch, seq_len, head_number*head_size});
     auto *output_d = out->mutable_data<T>(context.GetPlace());
     // prepare tmp tensor(softmax_d)
-    Tensor temp_tensor;
-    temp_tensor.Resize({batch * head_number * seq_len * seq_len});
-    auto *temp_softmax_d = temp_tensor.mutable_data<T>(context.GetPlace());
+    Tensor temp_tensor_in;
+    temp_tensor_in.Resize({batch,head_number,seq_len,seq_len});
+    auto *temp_softmax_d_in = temp_tensor_in.mutable_data<T>(context.GetPlace());
+    //Tensor temp_tensor_out;
+    //temp_tensor_out.Resize({batch, head_number, seq_len, seq_len});
+    //auto *temp_softmax_d_out = temp_tensor_out.mutable_data<T>(context.GetPlace());
     // qkv ptr
     auto *input_q_d = const_cast<T*>(input_d + hidden_size * 0);
     auto *input_k_d = const_cast<T*>(input_d + hidden_size * 1);
@@ -197,12 +201,7 @@ class VitAttentionKernel : public framework::OpKernel<T> {
 
     // compute q * k
     int batch_count = batch * head_number;
-    /*
-    Tensor array_tensor;
-    array_tensor.Resize({3 * batch * head_number});
-    int* array_d = array_tensor.mutable_data<int>(context.GetPlace());
-    void** test_array_d = reinterpret_cast<void**>(array_d);
-    */
+
     const void **d_a_array, **d_b_array, **array;
     void **d_c_array;
     cudaMalloc((void**)&array, 3 * batch_count * sizeof(T *));
@@ -217,15 +216,15 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                                                 d_c_array,
                                                 input_q_d,
                                                 input_k_d,
-                                                temp_softmax_d,
+                                                temp_softmax_d_in,
                                                 seq_len * hidden_three,
                                                 seq_len * hidden_three,
                                                 seq_len * seq_len * head_number, 
                                                 head_size, 
                                                 head_size, 
                                                 seq_len);
-    auto alpha = scale;
-    auto beta = 0.0f;
+    auto alpha = (T)scale;
+    auto beta = (T)0.0f;
     int lda = hidden_three;
     int ldb = hidden_three;
     int ldc = seq_len * head_number;
@@ -244,16 +243,17 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                      d_c_array, ldc,
                      batch_count);
     // softmax 
-    dim3 grid(batch * head_number);
-    dim3 block;
-    int val = round_up(seq_len);
-    block.x = val;
-    softmax_kernel<T> <<<grid, block, 0, stream>>>(temp_softmax_d, temp_softmax_d, batch, head_number, seq_len);
+    //dim3 grid(batch * head_number);
+    //dim3 block;
+    //int val = round_up(seq_len);
+    //block.x = val;
+    //softmax_kernel<T> <<<grid, block, 0, stream>>>(temp_softmax_d_in, temp_softmax_d_in, batch, head_number, seq_len);
+    phi::SoftmaxForwardCUDAKernelDriver<T>(device_ctx, temp_tensor_in, -1, &temp_tensor_in);
     // softmax * v
     set_ptr_kernel<<<grid_ptr,block_ptr,0,stream>>>(d_a_array, 
                                                 d_b_array,
                                                 d_c_array,
-                                                temp_softmax_d,
+                                                temp_softmax_d_in,
                                                 input_v_d,
                                                 output_d,
                                                 seq_len * seq_len * head_number,
@@ -263,7 +263,7 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                                                 head_size, 
                                                 head_size);
 
-    alpha = 1.0f;
+    alpha = (T)1.0f;
     lda = seq_len * head_number;
     ldb = hidden_three;
     ldc = hidden_size;
@@ -288,4 +288,5 @@ class VitAttentionKernel : public framework::OpKernel<T> {
 namespace ops = paddle::operators;
 REGISTER_OP_CUDA_KERNEL(
     vit_attention,
-    ops::VitAttentionKernel<paddle::platform::CUDADeviceContext, float>);
+    ops::VitAttentionKernel<paddle::platform::CUDADeviceContext, float>,
+    ops::VitAttentionKernel<paddle::platform::CUDADeviceContext, paddle::platform::float16>);
