@@ -80,7 +80,7 @@ void VitAttentionFusePass::ApplyImpl(ir::Graph* graph) const {
     auto vit_attention_node = graph->CreateOpNode(&desc);
 
     // Link inputs and outputs.
-    PADDLE_ENFORCE_NE(subgraph.count(x), 0, platform::errors::NotFound("Detector did not find input x of conv2d."));
+    PADDLE_ENFORCE_NE(subgraph.count(x), 0, platform::errors::NotFound("Detector did not find input x of vit_attention."));
 
     IR_NODE_LINK_TO(subgraph.at(x), vit_attention_node);          // Input
     IR_NODE_LINK_TO(vit_attention_node, reshape2_out);                        // Output

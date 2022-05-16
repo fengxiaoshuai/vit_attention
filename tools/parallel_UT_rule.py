@@ -992,7 +992,6 @@ FOURTH_HIGH_PARALLEL_JOB_NEW = [
     'test_error', 'test_callbacks', 'test_imperative_recurrent_usage',
     'test_deform_conv2d', 'test_coalesce_tensor_op', 'test_tsm',
     'test_fused_multihead_matmul_op', 'test_softmax_mask_fuse_op',
-    'test_fused_vit_attention_op',
     'test_optimizer_grad', 'test_complex_abs', 'test_gradient_accmulator',
     'test_instance_norm_op_v2', 'test_random_crop_op', 'test_mobile_net',
     'test_parallel_executor_transformer',

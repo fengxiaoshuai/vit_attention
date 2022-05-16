@@ -1,4 +1,4 @@
-#   Copyright (c) 2019 PaddlePaddle Authors. All Rights Reserved.
+#   Copyright (c) 2022 PaddlePaddle Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ class TestFusedVitAttentionOp(OpTest):
         self.size_per_head = 64
         self.head_number = 12
         self.batch_size = 1
-        self.scale = 1.5
+        self.scale = 1.25
 
     def setUp(self):
         self.op_type = "vit_attention"

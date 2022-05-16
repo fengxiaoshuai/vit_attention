@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 PaddlePaddle Authors. All Rights Reserved.
+/* Copyright (c) 2022 PaddlePaddle Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,7 +40,6 @@ class VitAttentionOp : public framework::OperatorWithKernel {
     int batch = dim_input[0];
     int seq_len = dim_input[1];
     int hidden_size = dim_input[2]/3;
-    //std::vector<int> dims = {batch, seq_len, seq_len * head_number};
     std::vector<int> dims = {batch, seq_len, hidden_size};
     context->SetOutputDim("Out", phi::make_ddim(dims));
     //context->ShareLoD("Input", /*->*/ "Out");
@@ -51,7 +50,6 @@ class VitAttentionOpMaker : public framework::OpProtoAndCheckerMaker {
  public:
   void Make() override {
     AddInput("Input", "The input of VitAttention op");
-    //AddInput("W", "The weight input of MultiHeadMatMul op");
     AddOutput("Out", "The output of Vitattention op");
     AddAttr<int>("head_number", "The number of heads of the matrix")
         .SetDefault(12);
@@ -62,7 +60,7 @@ MultiHeadMatMul Operator.
 This op is used for optimize multi head calculation in vit model.
 Not suggest to use in other case except has same structure as vit_base.
 
-- X: [batch, length, hidden_size * 3] => Out: [batch, length, hidden_size]
+- X: [batch, length, hidden_size * 3]=[batch,length,Q:K:V] => Out: [batch, length, hidden_size]
 
 )DOC");
   }

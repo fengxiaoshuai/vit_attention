@@ -24,7 +24,6 @@ namespace paddle {
 namespace framework {
 namespace ir {
 
-// Fusing of reshape2 , index_select and reshape, transpose2, unsqueeze2 op
 
 class Graph;
 

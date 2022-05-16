@@ -20,75 +20,10 @@
 #include "paddle/phi/kernels/gpudnn/softmax_gpudnn.h"
 #include "paddle/phi/kernels/funcs/blas/blas.h"
 #include "paddle/fluid/platform/dynload/cublas.h"
-#define FINAL_MASK 0xffffffff
 
 namespace paddle {
 namespace operators {
 
-template <typename T>
-__inline__ __device__
-T warpReduceSum(T val)
-{
-  for(int mask = 16; mask > 0; mask >>= 1)
-    val += __shfl_xor_sync(FINAL_MASK, val, mask, 32);
-  return val;
-}
-
-
-template <typename T>
-__inline__ __device__
-T warpReduceMax(T val)
-{
-  for(int mask = 16; mask > 0; mask >>= 1)
-    val = max(val, __shfl_xor_sync(FINAL_MASK, val, mask, 32));
-  return val;
-}
-
-
-template <typename T>
-__inline__ __device__
-T blockReduceMax(T val)
-{
-  static __shared__ T shared[32]; 
-//  __shared__ T shared[32]; 
-  int lane = threadIdx.x & 0x1f; // in-warp idx
-  int wid = threadIdx.x >> 5;  // warp idx
-
-  val = warpReduceMax(val); // get maxx in each warp
-
-  if(lane == 0) // record in-warp maxx by warp Idx
-    shared[wid] = val;
-
-  __syncthreads();
-
-  val = (threadIdx.x < (blockDim.x >> 5 )) ? shared[lane] : 0;
-  val = warpReduceMax(val);
-
-  return val;
-}
-
-
-template <typename T>
-  __inline__ __device__
-T blockReduceSum(T val)
-{
-  static __shared__ T shared[32]; 
-  //__shared__ T shared[32]; 
-  int lane = threadIdx.x & 0x1f; 
-  int wid = threadIdx.x >> 5;  
-
-  val = warpReduceSum<T>(val);
-
-  if(lane == 0)
-    shared[wid] = val;
-
-  __syncthreads();
-
-  val = (threadIdx.x < (blockDim.x >> 5 )) ? shared[lane] : (T)(0.0f);
-  val = warpReduceSum<T>(val);
-                              
-  return val;
-}
 
 template <typename T>
 __global__
@@ -106,56 +41,6 @@ void set_ptr_kernel(const void** array_a,
      array_b[batch_id * blockDim.x + head_id] = device_b + batch_id * batch_b + head_id * head_b; 
      array_c[batch_id * blockDim.x + head_id] = device_c + batch_id * batch_c + head_id * head_c;
      
-}
-
-template <typename T>
-__global__
-void softmax_kernel(T* qk_buf, T* softmax_buf, const int batch_size, const int head_num, const int length)
-{
-    int batch_id = blockIdx.x / head_num;
-    int head_offset = blockIdx.x % head_num * length;
-    int batch_offset = batch_id * length * head_num * length;
-    __shared__ float s_sum, s_max;
-
-    for(int i = 0; i < length; ++i)
-    {
-      int length_offset = i * length * head_num;
-      float qk = threadIdx.x < length ? (float)qk_buf[threadIdx.x + batch_offset + head_offset + length_offset]  : 0.0f;
-      __syncthreads();
-      float tmp = threadIdx.x < length ? (float)(qk): -1e20f;
-      float max_val = blockReduceMax<float>(tmp);
-
-      if(threadIdx.x == 0) s_max = max_val;
-       __syncthreads();
-
-      qk = threadIdx.x < length ? __expf(tmp - s_max) : 0.0f;
-
-      float sum_val = blockReduceSum<float>(qk);
-
-      if(threadIdx.x == 0) s_sum = sum_val + 1e-6f;
-      __syncthreads();
-
-      if(threadIdx.x < length) softmax_buf[threadIdx.x + batch_offset + head_offset + length_offset] = (T)(qk / s_sum);
-
-    }
-}
-
-int round_up(int seq_len)
-{
-    int val =32;
-    if(seq_len <= 32)
-      val = 32;
-    else if(seq_len > 32 && seq_len <= 64)
-      val = 64;
-    else if(seq_len > 64 && seq_len <= 128)
-      val = 128;
-    else if(seq_len > 128 && seq_len <= 256)
-      val = 256;
-    else if(seq_len > 256 && seq_len <= 512)
-      val = 512;
-    else
-      val = 1024;
-    return val;
 }
 
 
@@ -188,27 +73,24 @@ class VitAttentionKernel : public framework::OpKernel<T> {
     out->Resize({batch, seq_len, head_number*head_size});
     auto *output_d = out->mutable_data<T>(context.GetPlace());
     // prepare tmp tensor(softmax_d)
-    Tensor temp_tensor_in;
-    temp_tensor_in.Resize({batch,head_number,seq_len,seq_len});
-    auto *temp_softmax_d_in = temp_tensor_in.mutable_data<T>(context.GetPlace());
-    //Tensor temp_tensor_out;
-    //temp_tensor_out.Resize({batch, head_number, seq_len, seq_len});
-    //auto *temp_softmax_d_out = temp_tensor_out.mutable_data<T>(context.GetPlace());
+    Tensor temp_tensor;
+    temp_tensor.Resize({batch,head_number,seq_len,seq_len});
+    auto *temp_softmax_d = temp_tensor.mutable_data<T>(context.GetPlace());
     // qkv ptr
     auto *input_q_d = const_cast<T*>(input_d + hidden_size * 0);
     auto *input_k_d = const_cast<T*>(input_d + hidden_size * 1);
     auto *input_v_d = const_cast<T*>(input_d + hidden_size * 2); 
 
-    // compute q * k
+    // prepare q * k
     int batch_count = batch * head_number;
 
     const void **d_a_array, **d_b_array, **array;
     void **d_c_array;
-    cudaMalloc((void**)&array, 3 * batch_count * sizeof(T *));
+    cudaMalloc(&array, 3 * batch_count * sizeof(T *));
     d_a_array = array;
     d_b_array = &array[batch_count];
     d_c_array = const_cast<void**>(&array[2 * batch_count]);
-    // set_ptr_kernel
+    // first:set_ptr_kernel
     dim3 grid_ptr(batch);
     dim3 block_ptr(head_number);
     set_ptr_kernel<<<grid_ptr,block_ptr,0,stream>>>(d_a_array, 
@@ -216,13 +98,14 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                                                 d_c_array,
                                                 input_q_d,
                                                 input_k_d,
-                                                temp_softmax_d_in,
+                                                temp_softmax_d,
                                                 seq_len * hidden_three,
                                                 seq_len * hidden_three,
                                                 seq_len * seq_len * head_number, 
                                                 head_size, 
                                                 head_size, 
                                                 seq_len);
+    // second:compute Q*K
     auto alpha = (T)scale;
     auto beta = (T)0.0f;
     int lda = hidden_three;
@@ -243,17 +126,12 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                      d_c_array, ldc,
                      batch_count);
     // softmax 
-    //dim3 grid(batch * head_number);
-    //dim3 block;
-    //int val = round_up(seq_len);
-    //block.x = val;
-    //softmax_kernel<T> <<<grid, block, 0, stream>>>(temp_softmax_d_in, temp_softmax_d_in, batch, head_number, seq_len);
-    phi::SoftmaxForwardCUDAKernelDriver<T>(device_ctx, temp_tensor_in, -1, &temp_tensor_in);
+    phi::SoftmaxForwardCUDAKernelDriver<T>(device_ctx, temp_tensor, -1, &temp_tensor);
     // softmax * v
     set_ptr_kernel<<<grid_ptr,block_ptr,0,stream>>>(d_a_array, 
                                                 d_b_array,
                                                 d_c_array,
-                                                temp_softmax_d_in,
+                                                temp_softmax_d,
                                                 input_v_d,
                                                 output_d,
                                                 seq_len * seq_len * head_number,
@@ -279,6 +157,7 @@ class VitAttentionKernel : public framework::OpKernel<T> {
                      beta, 
                      d_c_array, ldc,
                      batch_count);
+    cudaFree(array);
   }
 };
 
